@@ -1,104 +1,103 @@
-import OpenAI from "openai"
-import { getCurrentWeather, getLocation } from "./tools"
+import { GoogleGenAI } from "@google/genai";
+import dotenv from "dotenv";
+import {
+    getLocation,
+    getCurrentWeather,
+    tools
+} from "./tools.js";
 
-export const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-    dangerouslyAllowBrowser: true
-})
+dotenv.config();
+
+const ai = new GoogleGenAI({
+    apiKey: process.env.API_KEY
+});
 
 const availableFunctions = {
-    getCurrentWeather,
-    getLocation
-}
-
-/**
- * Goal - build an agent that can answer any questions that might require knowledge about my current location and the current weather at my location.
- */
-
-const systemPrompt = `
-You cycle through Thought, Action, PAUSE, Observation. At the end of the loop you output a final Answer. Your final answer should be highly specific to the observations you have from running
-the actions.
-1. Thought: Describe your thoughts about the question you have been asked.
-2. Action: run one of the actions available to you - then return PAUSE.
-3. PAUSE
-4. Observation: will be the result of running those actions.
-
-Available actions:
-- getCurrentWeather: 
-    E.g. getCurrentWeather: Salt Lake City
-    Returns the current weather of the location specified.
-- getLocation:
-    E.g. getLocation: null
-    Returns user's location details. No arguments needed.
-
-Example session:
-Question: Please give me some ideas for activities to do this afternoon.
-Thought: I should look up the user's location so I can give location-specific activity ideas.
-Action: getLocation: null
-PAUSE
-
-You will be called again with something like this:
-Observation: "New York City, NY"
-
-Then you loop again:
-Thought: To get even more specific activity ideas, I should get the current weather at the user's location.
-Action: getCurrentWeather: New York City
-PAUSE
-
-You'll then be called again with something like this:
-Observation: { location: "New York City, NY", forecast: ["sunny"] }
-
-You then output:
-Answer: <Suggested activities based on sunny weather that are highly specific to New York City and surrounding areas.>
-`
+    getLocation,
+    getCurrentWeather
+};
 
 async function agent(query) {
-    const messages = [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: query }
-    ]
-    
-    const MAX_ITERATIONS = 5
-    const actionRegex = /^Action: (\w+): (.*)$/
-    
-    for (let i = 0; i < MAX_ITERATIONS; i++) {
-        console.log(`Iteration #${i + 1}`)
-        const response = await openai.chat.completions.create({
-            model: "gpt-3.5-turbo",
-            messages
-        })
 
-        const responseText = response.choices[0].message.content
-        console.log(responseText)
-        messages.push({ role: "assistant", content: responseText })
-        const responseLines = responseText.split("\n")
+    let response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: `
+      You are a helpful assistant.
 
-        const foundActionStr = responseLines.find(str => actionRegex.test(str))
-        
-        if (foundActionStr) {
-            const actions = actionRegex["exec"](foundActionStr)
-            const [_, action, actionArg] = actions
-            
-            if (!availableFunctions.hasOwnProperty(action)) {
-                throw new Error(`Unknown action: ${action}: ${actionArg}`)
-            }
-            console.log(`Calling function ${action} with argument ${actionArg}`)
-            const observation = await availableFunctions[action](actionArg)
-            messages.push({ role: "assistant", content: `Observation: ${observation}` })
-        } else {
-            console.log("Agent finished with task")
-            return responseText
+        When a tool can provide information needed to answer the user's question,
+        call the tool.
+
+        After receiving tool results, use them to answer the user.
+
+        Do not ask permission before calling available tools.
+
+      
+      User: ${query}
+      `,
+        config: {
+          tools
         }
+      });
+    console.log(JSON.stringify(response, null, 2));
+
+    const functionCalls = response.functionCalls;
+
+    if (!functionCalls || functionCalls.length === 0) {
+        console.log(response.text);
+        return;
+    }
+
+    for (const call of functionCalls) {
+
+        const functionName = call.name;
+        const args = call.args;
+
+        console.log("Calling:", functionName, args);
+
+        const result =
+            await availableFunctions[functionName](
+                args?.location
+            );
+
+        response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: [
+                {
+                    role: "user",
+                    parts: [{ text: query }]
+                },
+                {
+                    role: "model",
+                    parts: [{
+                        functionCall: {
+                            name: functionName,
+                            args
+                        }
+                    }]
+                },
+                {
+                    role: "user",
+                    parts: [{
+                        functionResponse: {
+                            name: functionName,
+                            response: {
+                                result
+                            }
+                        }
+                    }]
+                }
+            ],
+            config: {
+                tools
+            }
+        });
     }
     
+    
+    console.log(JSON.stringify(response, null, 2));
+    console.log(response.text);
 }
 
-console.log(await agent("What are some activity ideas that I can do this afternoon based on my location and weather?"))
-
-/**
-Answer: Based on the current snowy weather in New York City, here are some activity ideas for this afternoon: 1. Build a snowman in Central Park. 2. Go ice skating at Rockefeller Center. 3. Have a hot chocolate tasting at a cozy café. 4. Visit a museum or art gallery. 5. Stay indoors and watch a movie marathon. Remember to dress warmly and stay safe while enjoying these activities!
-/index.html
-
-
-
- */
+await agent(
+    "What are some activity ideas that I can do this afternoon based on my location and weather?"
+);

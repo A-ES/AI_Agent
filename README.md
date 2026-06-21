@@ -43,11 +43,6 @@ Final Response
 
 ## Tech Stack
 
-### Frontend
-
-* React
-* TypeScript
-
 ### Backend
 
 * Node.js
@@ -82,18 +77,6 @@ Agent:
 * Analyzes conditions
 * Generates recommendation
 
-## Project Structure
-
-src/
-├── agent/
-│ ├── planner
-│ ├── executor
-│ └── reasoning
-├── tools/
-├── services/
-├── routes/
-├── utils/
-└── app.js
 
 ## Installation
 
@@ -110,11 +93,7 @@ API_KEY=your_api_key
 PORT=3000
 ```
 
-## Run Locally
 
-```bash
-npm start
-```
 
 ## Future Improvements
 

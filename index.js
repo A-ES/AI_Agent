@@ -40,62 +40,85 @@ async function agent(query) {
       });
     console.log(JSON.stringify(response, null, 2));
 
-    const functionCalls = response.functionCalls;
+    while (true) {
 
-    if (!functionCalls || functionCalls.length === 0) {
-        console.log(response.text);
-        return;
-    }
-
-    for (const call of functionCalls) {
-
-        const functionName = call.name;
-        const args = call.args;
-
-        console.log("Calling:", functionName, args);
-
-        const result =
-            await availableFunctions[functionName](
-                args?.location
-            );
-
-        response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: [
-                {
-                    role: "user",
-                    parts: [{ text: query }]
-                },
-                {
-                    role: "model",
-                    parts: [{
-                        functionCall: {
-                            name: functionName,
-                            args
-                        }
-                    }]
-                },
-                {
-                    role: "user",
-                    parts: [{
-                        functionResponse: {
-                            name: functionName,
-                            response: {
-                                result
-                            }
-                        }
-                    }]
+        const functionCalls = response.functionCalls;
+    
+        if (!functionCalls || functionCalls.length === 0) {
+    
+            const parts =
+                response.candidates?.[0]?.content?.parts ?? [];
+    
+            for (const part of parts) {
+                if (part.text) {
+                    console.log(part.text);
                 }
-            ],
-            config: {
-                tools
             }
-        });
+    
+            return;
+        }
+    
+        for (const call of functionCalls) {
+    
+            const functionName = call.name;
+            const args = call.args;
+    
+            console.log("Calling:", functionName, args);
+    
+            const result =
+                await availableFunctions[functionName](
+                    args?.location
+                );
+    
+            response = await ai.models.generateContent({
+                model: "gemini-2.5-flash",
+                contents: [
+                    {
+                        role: "user",
+                        parts: [{ text: query }]
+                    },
+                    {
+                        role: "model",
+                        parts: [{
+                            functionCall: {
+                                name: functionName,
+                                args
+                            }
+                        }]
+                    },
+                    {
+                        role: "user",
+                        parts: [{
+                            functionResponse: {
+                                name: functionName,
+                                response: {
+                                    result
+                                }
+                            }
+                        }]
+                    }
+                ],
+                config: {
+                    tools
+                }
+            });
+        }
     }
     
     
     console.log(JSON.stringify(response, null, 2));
-    console.log(response.text);
+    const parts =
+    response.candidates?.[0]?.content?.parts ?? [];
+  
+  for (const part of parts) {
+    if (part.text) {
+      console.log(part.text);
+    }
+  
+    if (part.functionCall) {
+      console.log("Function Call:", part.functionCall);
+    }
+  }
 }
 
 await agent(
